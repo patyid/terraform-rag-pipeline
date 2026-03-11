@@ -1,7 +1,3 @@
-# 
-# VARIABLES - Configurações do Projeto
-# 
-
 variable "region" {
   description = "AWS Region"
   type        = string
@@ -20,10 +16,6 @@ variable "project_name" {
   default     = "rag-pipeline"
 }
 
-# 
-# NETWORK
-# 
-
 variable "allowed_azs" {
   description = "Availability Zones permitidas"
   type        = list(string)
@@ -33,14 +25,15 @@ variable "allowed_azs" {
 variable "allowed_cidr" {
   description = "CIDR autorizado para acesso ao Streamlit (seu IP/32 recomendado)"
   type        = string
+
+  validation {
+    condition     = var.app_runtime != "streamlit" || var.allowed_cidr != ""
+    error_message = "allowed_cidr é obrigatório quando app_runtime = \"streamlit\"."
+  }
 }
 
-# 
-# COMPUTE
-# 
-
 variable "instance_type" {
-  description = "Tipo da instância EC2 (CPU-only suficiente para GPT-4o mini)"
+  description = "Tipo da instância EC2"
   type        = string
   default     = "t3.xlarge"
 }
@@ -56,10 +49,6 @@ variable "root_volume_size" {
   type        = number
   default     = 30
 }
-
-# 
-# APLICAÇÃO
-# 
 
 variable "app_git_repo" {
   description = "URL do repositório Git da aplicação"
@@ -85,20 +74,51 @@ variable "app_entry_point" {
   default     = "chat_stream.py"
 }
 
+variable "app_runtime" {
+  description = "Runtime do app: streamlit (web) ou python (job/script)"
+  type        = string
+  default     = "streamlit"
+
+  validation {
+    condition     = contains(["streamlit", "python"], var.app_runtime)
+    error_message = "app_runtime deve ser \"streamlit\" ou \"python\"."
+  }
+}
+
+variable "app_args" {
+  description = "Argumentos extras (separados por espaço) passados para o entrypoint"
+  type        = string
+  default     = ""
+}
+
+variable "app_autostart" {
+  description = "Iniciar o serviço automaticamente no boot"
+  type        = bool
+  default     = true
+}
+
 variable "app_port" {
   description = "Porta da aplicação Streamlit"
   type        = number
   default     = 8501
 }
 
-# 
-# FEATURE FLAGS
-# 
-
 variable "enable_s3_access" {
   description = "Habilitar acesso a S3 para documentos RAG"
   type        = bool
   default     = true
+}
+
+variable "pdf_bucket_name" {
+  description = "Nome do bucket S3 onde ficam os PDFs (opcional; usado para permissões IAM)"
+  type        = string
+  default     = ""
+}
+
+variable "vector_store_bucket_name" {
+  description = "Nome do bucket S3 onde ficam os vector stores (opcional; se vazio, Terraform cria um bucket gerenciado)"
+  type        = string
+  default     = ""
 }
 
 variable "s3_bucket_arns" {
@@ -113,26 +133,16 @@ variable "enable_detailed_monitoring" {
   default     = false
 }
 
-variable "create_cloudwatch_log_group" {
-  description = "Criar Log Group do CloudWatch"
-  type        = bool
-  default     = true
-}
-
-variable "log_retention_days" {
-  description = "Dias de retenção dos logs"
-  type        = number
-  default     = 7
-}
-
-variable "create_ssm_parameters" {
-  description = "Criar parâmetros no SSM Parameter Store"
-  type        = bool
-  default     = true
+variable "openai_api_key_parameter_name" {
+  description = "Nome do parâmetro (SecureString) no SSM Parameter Store para a OpenAI API Key"
+  type        = string
+  default     = "/rag-pipeline/openai-api-key"
 }
 
 variable "openai_api_key" {
   description = "OpenAI API Key"
   type        = string
   sensitive   = true
+  default     = ""
 }
+

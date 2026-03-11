@@ -15,11 +15,11 @@ output "ssm_start_session" {
 output "instance_details" {
   description = "Detalhes da instância EC2"
   value = {
-    id          = module.ec2.instance_id
-    public_ip   = module.ec2.instance_public_ip
-    private_ip  = module.ec2.instance_private_ip
-    public_dns  = module.ec2.instance_public_dns
-    ami_id      = module.ec2.ami_id
+    id           = module.ec2.instance_id
+    public_ip    = module.ec2.instance_public_ip
+    private_ip   = module.ec2.instance_private_ip
+    public_dns   = module.ec2.instance_public_dns
+    ami_id       = module.ec2.ami_id
     spot_request = module.ec2.spot_instance_request_id
   }
 }
@@ -31,7 +31,7 @@ output "cloudwatch_logs" {
 
 output "debug_commands" {
   description = "Comandos úteis para debugging"
-  value = <<-EOT
+  value       = <<-EOT
     
     # Verificar status do user_data
     aws ssm send-command \
@@ -54,4 +54,14 @@ output "debug_commands" {
       --parameters 'commands=["sudo systemctl status streamlit"]' \
       --region ${var.region}
   EOT
+}
+
+output "glue_job_name" {
+  description = "Nome do Glue Job de ingestão (quando habilitado)"
+  value       = try(aws_glue_job.rag_pipeline_ingestion[0].name, null)
+}
+
+output "glue_start_job_run" {
+  description = "Comando AWS CLI para iniciar o Glue Job (quando habilitado)"
+  value       = try("aws glue start-job-run --job-name ${aws_glue_job.rag_pipeline_ingestion[0].name} --region ${var.region}", null)
 }

@@ -3,7 +3,7 @@
 # `README.md`
 
 RAG Pipeline Terraform
-Infraestrutura como Código para Aplicações RAG com Streamlit na AWS
+Infraestrutura como Código para Aplicações RAG na AWS (Glue + Streamlit)
 
 ---
 
@@ -82,19 +82,39 @@ A arquitetura proposta visa um ambiente de desenvolvimento/teste eficiente e seg
 
 ---
 
+## 2.1 Separação em 2 projetos
+
+Para simplificar o uso e evitar um único stack grande, este repositório foi separado em **dois projetos Terraform independentes**:
+
+- `projects/glue`: infra do **AWS Glue** para ingestão (lê PDFs do S3 e grava o FAISS no S3).
+- `projects/streamlit`: infra de **EC2 Spot + Streamlit** para servir o chatbot.
+
+Os módulos compartilhados continuam em `terraform/modules`.
+
+### Projeto 1: Glue (ingestão)
+
+- Pasta: `projects/glue`
+- Exemplo: `projects/glue/enviroments/dev/terraform.tfvars`
+- Pré-requisito (código do job): clonar o app dentro do projeto:
+  - `git clone https://github.com/patyid/rag-pipeline-app.git projects/glue/rag-pipeline-app`
+  - Observação: execute o comando acima a partir da raiz do repositório (se você já estiver em `projects/glue`, use `git clone https://github.com/patyid/rag-pipeline-app.git rag-pipeline-app`).
+
+### Projeto 2: Streamlit (chatbot)
+
+- Pasta: `projects/streamlit`
+- Exemplo: `projects/streamlit/enviroments/dev/terraform.tfvars`
+
 ## 3. Estrutura de Diretórios
 
 A organização do projeto segue uma estrutura modular para promover reuso e clareza.
 
 ```
 rag-pipeline-terraform/
-├── main.tf                    # Orquestrador principal: define a infraestrutura usando os módulos.
-├── variables.tf               # Variáveis globais do projeto.
-├── outputs.tf                 # Saídas importantes do deploy (IP, URL, comandos SSM).
-├── terraform.tfvars           # Valores específicos para as variáveis (NÃO VERSIONAR!).
-├── versions.tf                # Define as versões mínimas do Terraform e dos providers.
+├── projects/
+│   ├── glue/                  # Terraform: AWS Glue Job de ingestão
+│   └── streamlit/             # Terraform: EC2 Spot + Streamlit (chatbot)
 ├── README.md                  # Este arquivo de documentação.
-├── modules/                   # Contém os módulos Terraform reutilizáveis.
+├── terraform/modules/         # Contém os módulos Terraform reutilizáveis.
 │   ├── ec2-spot/              # Módulo para provisionar instâncias EC2 Spot.
 │   │   ├── main.tf            # Define o recurso aws_instance.
 │   │   ├── variables.tf       # Variáveis de configuração do módulo EC2.
@@ -107,8 +127,7 @@ rag-pipeline-terraform/
 │       ├── main.tf            # Define o recurso aws_security_group e suas regras.
 │       ├── variables.tf       # Variáveis de configuração do módulo SG.
 │       └── outputs.tf         # Saídas do módulo SG.
-└── templates/                 # Contém templates de scripts para user_data.
-    └── user_data.sh           # Script de bootstrap para configurar a instância EC2.
+└── legacy/                    # Stack antigo combinado (não usar)
 ```
 
 ---
@@ -175,6 +194,11 @@ app_git_branch  = "main"
 app_dir_name    = "chatbot-app"
 app_entry_point = "chat_stream.py"
 app_port        = 8501
+
+# (Opcional) Repo/branch do job de vetores (clonado junto no user_data)
+vector_git_repo       = "https://github.com/patyid/rag-pipeline-app.git"
+app_git_branch_vector = "main"
+vector_dir_name       = "rag-pipeline-app"
 
 # S3 para documentos RAG (se enable_s3_access for true)
 enable_s3_access = true

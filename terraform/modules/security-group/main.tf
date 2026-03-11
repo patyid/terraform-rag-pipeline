@@ -58,7 +58,7 @@ resource "aws_security_group_rule" "egress" {
 
 resource "aws_ssm_parameter" "openai_api_key" {
   count       = var.openai_api_key != "" ? 1 : 0
-  name        = "/rag-pipeline/openai-api-key"
+  name        = var.openai_api_key_parameter_name
   description = "OpenAI API Key"
   type        = "SecureString"
 

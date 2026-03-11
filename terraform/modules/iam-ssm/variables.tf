@@ -25,9 +25,9 @@ variable "custom_policy_enabled" {
 variable "custom_policy_statements" {
   description = "Lista de statements para policy customizada"
   type = list(object({
-    Effect   = string
-    Action   = list(string)
-    Resource = list(string)
+    Effect    = string
+    Action    = list(string)
+    Resource  = list(string)
     Condition = optional(map(any))
   }))
   default = []

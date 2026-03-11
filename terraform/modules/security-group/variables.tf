@@ -68,6 +68,12 @@ variable "kms_key_id" {
   default     = ""
 }
 
+variable "openai_api_key_parameter_name" {
+  description = "SSM Parameter Store name for the OpenAI API key (SecureString)."
+  type        = string
+  default     = "/rag-pipeline/openai-api-key"
+}
+
 variable "openai_api_key" {
   description = "OpenAI API Key value stored in SSM (empty to skip parameter creation)."
   type        = string
