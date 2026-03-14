@@ -34,6 +34,10 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
+data "aws_s3_bucket" "app_code" {
+  bucket = var.app_s3_bucket
+}
+
 data "aws_vpc" "default" {
   default = true
 }
@@ -92,6 +96,14 @@ module "vector_db" {
   }
 }
 
+resource "aws_s3_object" "streamlit_app" {
+  bucket       = data.aws_s3_bucket.app_code.id
+  key          = var.app_s3_key
+  source       = "${path.module}/srs/streamlit_app.py"
+  content_type = "text/x-python"
+  etag         = filemd5("${path.module}/srs/streamlit_app.py")
+}
+
 # 
 # MÓDULO: IAM Role + SSM + Secrets Access
 # 
@@ -100,10 +112,18 @@ locals {
   pdf_bucket_arn                     = var.pdf_bucket_name != "" ? "arn:aws:s3:::${var.pdf_bucket_name}" : ""
   vector_store_bucket_name_effective = var.vector_store_bucket_name != "" ? var.vector_store_bucket_name : try(module.vector_db[0].bucket_name, "")
   vector_bucket_arn                  = local.vector_store_bucket_name_effective != "" ? "arn:aws:s3:::${local.vector_store_bucket_name_effective}" : ""
+  app_bucket_arn                     = var.app_s3_bucket != "" ? "arn:aws:s3:::${var.app_s3_bucket}" : ""
 
   s3_bucket_arns_effective = distinct(compact(concat(
     var.s3_bucket_arns,
-    [local.pdf_bucket_arn, local.vector_bucket_arn]
+    [
+      local.pdf_bucket_arn,
+      local.pdf_bucket_arn != "" ? "${local.pdf_bucket_arn}/*" : "",
+      local.vector_bucket_arn,
+      local.vector_bucket_arn != "" ? "${local.vector_bucket_arn}/*" : "",
+      local.app_bucket_arn,
+      local.app_bucket_arn != "" ? "${local.app_bucket_arn}/*" : "",
+    ]
   )))
 }
 
@@ -152,7 +172,7 @@ module "security_group" {
       from_port   = var.app_port
       to_port     = var.app_port
       protocol    = "tcp"
-      cidr_blocks = [var.allowed_cidr]
+      cidr_blocks = var.allowed_cidr
       description = "Streamlit app access from authorized IP"
     }
   ] : []
@@ -183,9 +203,6 @@ locals {
   subnet_id = data.aws_subnets.available.ids[0]
 
   user_data_rendered = templatefile("${path.module}/user_data.sh", {
-    app_git_repo                  = var.app_git_repo
-    app_git_branch                = var.app_git_branch
-    app_dir_name                  = var.app_dir_name
     app_entry_point               = var.app_entry_point
     app_runtime                   = var.app_runtime
     app_args                      = var.app_args
@@ -195,6 +212,12 @@ locals {
     openai_api_key_parameter_name = var.openai_api_key_parameter_name
     pdf_bucket_name               = var.pdf_bucket_name
     vector_store_bucket_name      = local.vector_store_bucket_name_effective
+    vector_db_name                = var.vector_db_name
+    vector_store_prefix           = var.vector_store_prefix
+    embedding_model               = var.embedding_model
+    chat_model                    = var.chat_model
+    app_s3_bucket                 = var.app_s3_bucket
+    app_s3_key                    = var.app_s3_key
     data_path                     = "/mnt/data"
     fallback_path                 = "/var/lib/app-data"
   })
@@ -235,4 +258,3 @@ module "ec2" {
     Backup      = "false"
   }
 }
-

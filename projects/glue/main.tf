@@ -220,6 +220,14 @@ resource "aws_iam_role_policy" "glue_ingestion_inline" {
           local.glue_assets_bucket_arn,
           local.glue_assets_bucket_arn != "" ? "${local.glue_assets_bucket_arn}/*" : "",
         ])
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "textract:StartDocumentTextDetection",
+          "textract:GetDocumentTextDetection"
+        ]
+        Resource = "*"
       }
     ]
   })

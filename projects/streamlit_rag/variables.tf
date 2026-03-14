@@ -23,12 +23,12 @@ variable "allowed_azs" {
 }
 
 variable "allowed_cidr" {
-  description = "CIDR autorizado para acesso ao Streamlit (seu IP/32 recomendado)"
-  type        = string
+  description = "CIDRs autorizados para acesso ao Streamlit (seu IP/32 recomendado)"
+  type        = list(string)
 
   validation {
-    condition     = var.app_runtime != "streamlit" || var.allowed_cidr != ""
-    error_message = "allowed_cidr é obrigatório quando app_runtime = \"streamlit\"."
+    condition     = var.app_runtime != "streamlit" || length(var.allowed_cidr) > 0
+    error_message = "allowed_cidr deve ter pelo menos 1 CIDR quando app_runtime = \"streamlit\"."
   }
 }
 
@@ -50,28 +50,22 @@ variable "root_volume_size" {
   default     = 30
 }
 
-variable "app_git_repo" {
-  description = "URL do repositório Git da aplicação"
-  type        = string
-  default     = "https://github.com/patyid/chatbot-project.git"
-}
-
-variable "app_git_branch" {
-  description = "Branch do repositório"
-  type        = string
-  default     = "main"
-}
-
-variable "app_dir_name" {
-  description = "Nome do diretório da aplicação dentro do repo"
-  type        = string
-  default     = "chatbot-app"
-}
-
 variable "app_entry_point" {
   description = "Arquivo de entrada do Streamlit"
   type        = string
-  default     = "chat_stream.py"
+  default     = "streamlit_app.py"
+}
+
+variable "app_s3_bucket" {
+  description = "Bucket S3 opcional com o streamlit_app.py"
+  type        = string
+  default     = "script-452271769418"
+}
+
+variable "app_s3_key" {
+  description = "Chave S3 opcional do streamlit_app.py"
+  type        = string
+  default     = "streamlit/streamlit_app.py"
 }
 
 variable "app_runtime" {
@@ -121,6 +115,30 @@ variable "vector_store_bucket_name" {
   default     = ""
 }
 
+variable "vector_db_name" {
+  description = "Nome do vector DB (prefixo de diretório no S3)"
+  type        = string
+  default     = "vector_db"
+}
+
+variable "vector_store_prefix" {
+  description = "Prefixo no S3 onde ficam os vector stores"
+  type        = string
+  default     = "vector-stores/"
+}
+
+variable "embedding_model" {
+  description = "Modelo de embeddings (deve ser o mesmo usado na ingestão)"
+  type        = string
+  default     = "text-embedding-3-small"
+}
+
+variable "chat_model" {
+  description = "Modelo de chat usado pelo app"
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
 variable "s3_bucket_arns" {
   description = "ARNs dos buckets S3 permitidos"
   type        = list(string)
@@ -145,4 +163,3 @@ variable "openai_api_key" {
   sensitive   = true
   default     = ""
 }
-

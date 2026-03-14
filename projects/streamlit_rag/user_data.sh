@@ -12,9 +12,6 @@ echo "==== STARTED: $(date -Is) ===="
 #
 # 1. CONFIGURAÇÕES (via Terraform templatefile)
 #
-APP_REPO="${app_git_repo}"
-APP_BRANCH="${app_git_branch}"
-APP_NAME="${app_dir_name}"
 ENTRY_POINT="${app_entry_point}"
 APP_RUNTIME="${app_runtime}"
 APP_ARGS_RAW="${app_args}"
@@ -24,33 +21,30 @@ AWS_REGION="${aws_region}"
 OPENAI_API_KEY_PARAMETER_NAME="${openai_api_key_parameter_name}"
 PDF_BUCKET_NAME="${pdf_bucket_name}"
 VECTOR_BUCKET_NAME="${vector_store_bucket_name}"
+VECTOR_DB_NAME="${vector_db_name}"
+VECTOR_STORE_PREFIX="${vector_store_prefix}"
+EMBEDDING_MODEL="${embedding_model}"
+CHAT_MODEL="${chat_model}"
 DATA_PATH="${data_path}"
 FALLBACK_PATH="${fallback_path}"
+APP_S3_BUCKET="${app_s3_bucket}"
+APP_S3_KEY="${app_s3_key}"
 
 APP_BASE="/opt/app"
-CLONE_PATH="$APP_BASE/$APP_NAME"
 VENV_PATH="$APP_BASE/venv"
 USERNAME="ubuntu"
 
 #
-# 2. DEPENDÊNCIAS DO SISTEMA (incluindo OCR para PDFs de imagem)
+# 2. DEPENDÊNCIAS DO SISTEMA (mínimas para Streamlit + LangChain)
 #
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 
 apt-get install -y \
-    git curl wget \
+    curl wget \
     python3 python3-venv python3-pip \
     build-essential \
-    sqlite3 \
-    awscli \
-    tesseract-ocr \
-    tesseract-ocr-por \
-    tesseract-ocr-eng \
-    poppler-utils \
-    libpoppler-cpp-dev \
-    pkg-config \
-    libmagic1
+    awscli
 
 #
 # 3. CONFIGURAR DIRETÓRIO DE DADOS
@@ -59,28 +53,53 @@ mkdir -p "$FALLBACK_PATH"/{uploads,vectors,logs}
 chown -R $USERNAME:$USERNAME "$FALLBACK_PATH"
 
 #
-# 4. DEPLOY DA APLICAÇÃO
+# 4. DEPLOY DA APLICAÇÃO (sem clone de repo)
 #
 mkdir -p "$APP_BASE"
 
-if [ -d "$CLONE_PATH/.git" ]; then
-    echo "Atualizando repositório..."
-    cd "$CLONE_PATH"
-    git fetch origin
-    git checkout "$APP_BRANCH"
-    git pull origin "$APP_BRANCH"
-else
-    echo "Clonando repositório..."
-    git clone --branch "$APP_BRANCH" --depth 1 "$APP_REPO" "$CLONE_PATH"
+WORK_DIR="$APP_BASE/app"
+mkdir -p "$WORK_DIR"
+
+# Baixa o app do S3 (obrigatório).
+if [ -z "$APP_S3_BUCKET" ] || [ -z "$APP_S3_KEY" ]; then
+  echo "ERRO: app_s3_bucket e app_s3_key são obrigatórios."
+  exit 1
 fi
 
-FOUND_FILE=$(find "$CLONE_PATH" -name "$ENTRY_POINT" -type f | head -n 1)
-if [ -z "$FOUND_FILE" ]; then
-    echo "ERRO: Entry point '$ENTRY_POINT' não encontrado!"
+echo "Baixando app de s3://$APP_S3_BUCKET/$APP_S3_KEY"
+aws s3 cp "s3://$APP_S3_BUCKET/$APP_S3_KEY" "$WORK_DIR/$ENTRY_POINT"
+
+cat > "$WORK_DIR/requirements.txt" << 'REQS'
+# Streamlit
+streamlit==1.38.0
+
+# LangChain ecosystem
+langchain==0.3.0
+langchain-community==0.3.0
+langchain-openai==0.2.0
+langchain-text-splitters==0.3.0
+
+# Vector store
+faiss-cpu==1.8.0
+
+# OpenAI
+openai==1.45.0
+tiktoken==0.7.0
+httpx==0.27.2
+
+# AWS + config
+boto3==1.35.0
+botocore==1.35.0
+pydantic==2.9.0
+pydantic-settings==2.5.0
+python-dotenv==1.0.1
+REQS
+
+FOUND_FILE="$WORK_DIR/$ENTRY_POINT"
+if [ ! -f "$FOUND_FILE" ]; then
+    echo "ERRO: Entry point '$FOUND_FILE' não encontrado!"
     exit 1
 fi
-
-WORK_DIR=$(dirname "$FOUND_FILE")
 
 #
 # 5. SETUP PYTHON E DEPENDÊNCIAS
@@ -90,60 +109,8 @@ source "$VENV_PATH/bin/activate"
 
 pip install --upgrade pip setuptools wheel
 
-# Verifica se existe requirements.txt no projeto
-if [ -f "$WORK_DIR/requirements.txt" ]; then
-    echo "Instalando dependências do requirements.txt..."
-    pip install -r "$WORK_DIR/requirements.txt"
-else
-    echo "Criando requirements.txt com dependências do RAG..."
-    cat > "$WORK_DIR/requirements.txt" << 'EOF'
-# LangChain Ecosystem
-langchain==0.3.0
-langchain-community==0.3.0
-langchain-openai==0.2.0
-langchain-text-splitters==0.3.0
-
-# PDF Processing & OCR
-pymupdf==1.24.10
-pdf2image==1.17.0
-pytesseract==0.3.13
-pdfplumber==0.11.4
-unstructured==0.15.0
-unstructured-inference==0.7.36
-pillow==10.4.0
-
-# Vector Store & ML
-faiss-cpu==1.8.0
-numpy==1.26.4
-scipy==1.14.0
-
-# OpenAI & Tokenization
-openai==1.45.0
-tiktoken==0.7.0
-
-# AWS S3
-boto3==1.35.0
-botocore==1.35.0
-
-# Data & Config
-pydantic==2.9.0
-pydantic-settings==2.5.0
-python-dotenv==1.0.1
-pandas==2.2.2
-pyarrow==17.0.0
-
-# Utilities
-tqdm==4.66.5
-tenacity==8.5.0
-streamlit==1.38.0
-EOF
-    
-    pip install -r "$WORK_DIR/requirements.txt"
-fi
-
-# Instala pacotes adicionais específicos se ainda não estiverem no requirements
-echo "Verificando pacotes adicionais..."
-pip install --upgrade langchain-openai faiss-cpu pymupdf tiktoken boto3 pydantic-settings python-dotenv tqdm || true
+echo "Instalando dependências do requirements.txt..."
+pip install -r "$WORK_DIR/requirements.txt"
 
 #
 # 6. ARQUIVOS AUXILIARES (ARGS + SECRETS)
@@ -211,25 +178,7 @@ sed -i "s|ARGS_FILE_PLACEHOLDER|$APP_BASE/app.args|g" "$APP_BASE/run_app.sh"
 chown $USERNAME:$USERNAME "$APP_BASE/run_app.sh"
 
 #
-# 7. CONFIGURAR SQLITE (usado pelo app Streamlit)
-#
-DB_PATH="$FALLBACK_PATH/chat_history.db"
-
-sudo -u $USERNAME sqlite3 "$DB_PATH" "
-CREATE TABLE IF NOT EXISTS message_store (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_session ON message_store(session_id);
-"
-
-chmod 644 "$DB_PATH"
-
-#
-# 8. SYSTEMD SERVICE
+# 7. SYSTEMD SERVICE
 #
 SERVICE_NAME="streamlit"
 if [ "$APP_RUNTIME" != "streamlit" ]; then
@@ -248,16 +197,21 @@ WorkingDirectory=WORKDIR_PLACEHOLDER
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/home/USERNAME_PLACEHOLDER
 Environment=PATH=VENV_PLACEHOLDER/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=CHAT_HISTORY_DB=DB_PATH_PLACEHOLDER
 Environment=DATA_PATH=DATA_PATH_PLACEHOLDER
 Environment=STREAMLIT_SERVER_PORT=PORT_PLACEHOLDER
 Environment=STREAMLIT_SERVER_ADDRESS=0.0.0.0
 Environment=STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 Environment=PYTHONPATH=WORKDIR_PLACEHOLDER
+Environment=VECTOR_STORE_BUCKET=VECTOR_BUCKET_PLACEHOLDER
+Environment=VECTOR_DB_NAME=VECTOR_DB_NAME_PLACEHOLDER
+Environment=VECTOR_STORE_PREFIX=VECTOR_STORE_PREFIX_PLACEHOLDER
+Environment=EMBEDDING_MODEL=EMBEDDING_MODEL_PLACEHOLDER
+Environment=CHAT_MODEL=CHAT_MODEL_PLACEHOLDER
 EnvironmentFile=-/opt/app/app.env
 
 ExecStartPre=/opt/app/load_secrets.sh
 ExecStart=/opt/app/run_app.sh
+ExecStartPost=/bin/bash -c "sleep 5; /usr/local/bin/streamlit-healthcheck.sh PORT_PLACEHOLDER || true"
 Restart=on-failure
 RestartSec=3
 
@@ -273,9 +227,13 @@ sed -i "s|USERNAME_PLACEHOLDER|$USERNAME|g" "$UNIT_FILE"
 sed -i "s|WORKDIR_PLACEHOLDER|$WORK_DIR|g" "$UNIT_FILE"
 sed -i "s|VENV_PLACEHOLDER|$VENV_PATH|g" "$UNIT_FILE"
 sed -i "s|ENTRY_PLACEHOLDER|$FOUND_FILE|g" "$UNIT_FILE"
-sed -i "s|DB_PATH_PLACEHOLDER|$DB_PATH|g" "$UNIT_FILE"
 sed -i "s|DATA_PATH_PLACEHOLDER|$FALLBACK_PATH|g" "$UNIT_FILE"
 sed -i "s|PORT_PLACEHOLDER|$APP_PORT|g" "$UNIT_FILE"
+sed -i "s|VECTOR_BUCKET_PLACEHOLDER|$VECTOR_BUCKET_NAME|g" "$UNIT_FILE"
+sed -i "s|VECTOR_DB_NAME_PLACEHOLDER|$VECTOR_DB_NAME|g" "$UNIT_FILE"
+sed -i "s|VECTOR_STORE_PREFIX_PLACEHOLDER|$VECTOR_STORE_PREFIX|g" "$UNIT_FILE"
+sed -i "s|EMBEDDING_MODEL_PLACEHOLDER|$EMBEDDING_MODEL|g" "$UNIT_FILE"
+sed -i "s|CHAT_MODEL_PLACEHOLDER|$CHAT_MODEL|g" "$UNIT_FILE"
 
 #
 # 10. PERMISSÕES E START
@@ -293,3 +251,15 @@ else
 fi
 
 echo "==== COMPLETED: $(date -Is) ===="
+
+#
+# 11. HEALTHCHECK BÁSICO
+#
+cat > /usr/local/bin/streamlit-healthcheck.sh << 'HC'
+#!/bin/bash
+set -euo pipefail
+
+PORT="$${1:-8501}"
+curl -fsS "http://127.0.0.1:$${PORT}/_stcore/health" >/dev/null
+HC
+chmod 755 /usr/local/bin/streamlit-healthcheck.sh
